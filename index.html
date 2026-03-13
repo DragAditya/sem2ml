@@ -1347,17 +1347,18 @@
     document.getElementById('btt').classList.toggle('show', s > 300);
   }, { passive: true });
 
-  // Real shared view counter — works on GitHub Pages via countapi.dev
+  // Real shared view counter — GitHub Pages compatible
+  // Uses counterapi.dev V1 (free, no signup) + countapi.xyz fallback
   (async function () {
-    const el = document.getElementById('vcount');
-    const NAMESPACE = 'github-mlnotes';
-    const KEY       = 'ml-exam-answers-v1';
-    const SESSION   = 'mlqa-hit-sent';
+    const el      = document.getElementById('vcount');
+    const NS      = 'mlnotes-patil';       // namespace (unique to your project)
+    const KEY     = 'ml-exam-answers-v1';  // change this string to reset count
+    const SESSION = 'mlqa-hit-sent';
 
     function animateTo(target, from) {
       const dur = 900, t0 = Date.now();
       (function tick() {
-        const p = Math.min((Date.now() - t0) / dur, 1);
+        const p    = Math.min((Date.now() - t0) / dur, 1);
         const ease = 1 - Math.pow(1 - p, 3);
         el.textContent = Math.floor(from + (target - from) * ease).toLocaleString();
         if (p < 1) requestAnimationFrame(tick);
@@ -1365,26 +1366,118 @@
       })();
     }
 
-    try {
-      let count;
-      if (!sessionStorage.getItem(SESSION)) {
-        // HIT: increments counter globally, returns new value
-        const res = await fetch('https://api.countapi.dev/hit/' + NAMESPACE + '/' + KEY);
-        if (!res.ok) throw new Error('hit failed');
-        const data = await res.json();
-        count = data.value;
-        sessionStorage.setItem(SESSION, '1');
-      } else {
-        // GET: just read current value without incrementing
-        const res = await fetch('https://api.countapi.dev/get/' + NAMESPACE + '/' + KEY);
-        if (!res.ok) throw new Error('get failed');
-        const data = await res.json();
-        count = data.value;
+    const alreadyCounted = sessionStorage.getItem(SESSION);
+
+    // ── Service 1: counterapi.dev V1 (free, no auth) ──────────────────
+    async function counterApiDev(hit) {
+      const action = hit ? 'up' : 'get';
+      const r = await fetch(
+        'https://api.counterapi.dev/v1/' + NS + '/' + KEY + '/' + action,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (!r.ok) throw new Error('counterapi.dev ' + r.status);
+      const d = await r.json();
+      // response: { name, value, ... }
+      const v = d.value ?? d.count;
+      if (typeof v !== 'number') throw new Error('bad response');
+      return v;
+    }
+
+    // ── Service 2: countapi.xyz (original, proven) ───────────────────
+    async function countApiXyz(hit) {
+      const endpoint = hit
+        ? 'https://api.countapi.xyz/hit/' + NS + '/' + KEY
+        : 'https://api.countapi.xyz/get/' + NS + '/' + KEY;
+      const r = await fetch(endpoint, { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) throw new Error('countapi.xyz ' + r.status);
+      const d = await r.json();
+      if (typeof d.value !== 'number') throw new Error('bad response');
+      return d.value;
+    }
+
+    const services = [counterApiDev, countApiXyz];
+    let count = null;
+
+    for (const svc of services) {
+      try {
+        count = await svc(!alreadyCounted);
+        if (typeof count === 'number' && count >= 0) break;
+      } catch (e) {
+        console.warn('[ViewCounter]', e.message, '— trying next service');
       }
-      animateTo(count, Math.max(1, count - 25));
-    } catch (err) {
+    }
+
+    if (typeof count === 'number' && count >= 0) {
+      if (!alreadyCounted) sessionStorage.setItem(SESSION, '1');
+      animateTo(count, Math.max(1, count - 20));
+    } else {
       el.textContent = '—';
-      console.warn('View counter unavailable:', err);
+    }
+  })();
+    }
+
+    // ── Try counterapi.dev ──────────────────────────────────────────────
+    async function tryCounterApi(hit) {
+      const action = hit ? 'up' : 'get';
+      const url = 'https://counterapi.dev/api/mlnotes/' + KEY + '/' + action;
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!r.ok) throw new Error('counterapi ' + r.status);
+      const d = await r.json();
+      // counterapi returns { count: N }
+      return typeof d.count === 'number' ? d.count : parseInt(d.count);
+    }
+
+    // ── Try api.counterapi.dev (v2 endpoint) ───────────────────────────
+    async function tryCounterApiV2(hit) {
+      const url = hit
+        ? 'https://api.counterapi.dev/v1/mlnotes/' + KEY + '/up'
+        : 'https://api.counterapi.dev/v1/mlnotes/' + KEY;
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!r.ok) throw new Error('counterapi-v2 ' + r.status);
+      const d = await r.json();
+      return typeof d.count === 'number' ? d.count : parseInt(d.count);
+    }
+
+    // ── Firebase public demo DB (last resort) ─────────────────────────
+    async function tryFirebase(hit) {
+      const base = 'https://mlnotes-views-default-rtdb.firebaseio.com/' + KEY;
+      if (hit) {
+        // Read then write atomically with a transaction-like approach
+        const r1 = await fetch(base + '.json', { signal: AbortSignal.timeout(4000) });
+        const val = (await r1.json()) || 0;
+        const newVal = val + 1;
+        await fetch(base + '.json', {
+          method: 'PUT',
+          body: JSON.stringify(newVal),
+          signal: AbortSignal.timeout(4000)
+        });
+        return newVal;
+      } else {
+        const r = await fetch(base + '.json', { signal: AbortSignal.timeout(4000) });
+        return (await r.json()) || 0;
+      }
+    }
+
+    const shouldHit = !sessionStorage.getItem(SESSION);
+
+    // Try each service in order, stop at first success
+    const services = [tryCounterApi, tryCounterApiV2];
+    let count = null;
+
+    for (const svc of services) {
+      try {
+        count = await svc(shouldHit);
+        if (typeof count === 'number' && count >= 0) {
+          if (shouldHit) sessionStorage.setItem(SESSION, '1');
+          break;
+        }
+      } catch (_) { /* try next */ }
+    }
+
+    if (typeof count === 'number' && count >= 0) {
+      animateTo(count, Math.max(1, count - 20));
+    } else {
+      el.textContent = '—';
     }
   })();
 </script>
