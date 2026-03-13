@@ -384,10 +384,19 @@
     </div>
   </div>
   <div class="topbar-right">
-    <div class="view-pill">
-      <span class="live-dot"></span>
-      <span id="vcount">—</span>
-      <span style="color:var(--text3)">views</span>
+    <div class="view-pill" style="padding:4px 8px">
+      <img
+        src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fdragaditya.github.io%2Fsem2ml&count_bg=%232f9e44&title_bg=%23e9ecef&title_color=%23495057&count_color=%23ffffff&icon=eye.svg&icon_color=%232f9e44&edge_flat=true"
+        alt="views"
+        id="hitsBadge"
+        style="height:22px;border-radius:4px;display:block"
+        onerror="this.style.display='none';document.getElementById('vcountFallback').style.display='flex'"
+      />
+      <span id="vcountFallback" style="display:none;align-items:center;gap:6px">
+        <span class="live-dot"></span>
+        <span id="vcount">—</span>
+        <span style="color:var(--text3)">views</span>
+      </span>
     </div>
     <button class="toggle-btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
   </div>
@@ -1347,23 +1356,7 @@
     document.getElementById('btt').classList.toggle('show', s > 300);
   }, { passive: true });
 
-  // Real shared view counter — GitHub Pages compatible
-  // Uses counterapi.dev V1 (free, no signup) + countapi.xyz fallback
-  (async function () {
-    const el      = document.getElementById('vcount');
-    const NS      = 'mlnotes-patil';       // namespace (unique to your project)
-    const KEY     = 'ml-exam-answers-v1';  // change this string to reset count
-    const SESSION = 'mlqa-hit-sent';
 
-    function animateTo(target, from) {
-      const dur = 900, t0 = Date.now();
-      (function tick() {
-        const p    = Math.min((Date.now() - t0) / dur, 1);
-        const ease = 1 - Math.pow(1 - p, 3);
-        el.textContent = Math.floor(from + (target - from) * ease).toLocaleString();
-        if (p < 1) requestAnimationFrame(tick);
-        else el.textContent = target.toLocaleString();
-      })();
     }
 
     const alreadyCounted = sessionStorage.getItem(SESSION);
