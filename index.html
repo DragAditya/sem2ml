@@ -384,19 +384,10 @@
     </div>
   </div>
   <div class="topbar-right">
-    <div class="view-pill" style="padding:4px 8px">
-      <img
-        src="https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fdragaditya.github.io%2Fsem2ml&count_bg=%232f9e44&title_bg=%23e9ecef&title_color=%23495057&count_color=%23ffffff&icon=eye.svg&icon_color=%232f9e44&edge_flat=true"
-        alt="views"
-        id="hitsBadge"
-        style="height:22px;border-radius:4px;display:block"
-        onerror="this.style.display='none';document.getElementById('vcountFallback').style.display='flex'"
-      />
-      <span id="vcountFallback" style="display:none;align-items:center;gap:6px">
-        <span class="live-dot"></span>
-        <span id="vcount">—</span>
-        <span style="color:var(--text3)">views</span>
-      </span>
+    <div class="view-pill">
+      <span class="live-dot"></span>
+      <span id="vcount">—</span>
+      <span style="color:var(--text3)">views</span>
     </div>
     <button class="toggle-btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
   </div>
@@ -1356,121 +1347,45 @@
     document.getElementById('btt').classList.toggle('show', s > 300);
   }, { passive: true });
 
+  // Real shared view counter using persistent storage
+  (async function() {
+    const el = document.getElementById('vcount');
+    const STORAGE_KEY = 'ml-exam-answers-views';
+    const SESSION_KEY = 'ml-exam-answers-counted';
 
+    function animateTo(target, from) {
+      const dur = 900, t0 = Date.now();
+      (function tick() {
+        const p = Math.min((Date.now() - t0) / dur, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.floor(from + (target - from) * e).toLocaleString();
+        if (p < 1) requestAnimationFrame(tick);
+        else el.textContent = target.toLocaleString();
+      })();
     }
 
-    const alreadyCounted = sessionStorage.getItem(SESSION);
-
-    // ── Service 1: counterapi.dev V1 (free, no auth) ──────────────────
-    async function counterApiDev(hit) {
-      const action = hit ? 'up' : 'get';
-      const r = await fetch(
-        'https://api.counterapi.dev/v1/' + NS + '/' + KEY + '/' + action,
-        { signal: AbortSignal.timeout(5000) }
-      );
-      if (!r.ok) throw new Error('counterapi.dev ' + r.status);
-      const d = await r.json();
-      // response: { name, value, ... }
-      const v = d.value ?? d.count;
-      if (typeof v !== 'number') throw new Error('bad response');
-      return v;
-    }
-
-    // ── Service 2: countapi.xyz (original, proven) ───────────────────
-    async function countApiXyz(hit) {
-      const endpoint = hit
-        ? 'https://api.countapi.xyz/hit/' + NS + '/' + KEY
-        : 'https://api.countapi.xyz/get/' + NS + '/' + KEY;
-      const r = await fetch(endpoint, { signal: AbortSignal.timeout(5000) });
-      if (!r.ok) throw new Error('countapi.xyz ' + r.status);
-      const d = await r.json();
-      if (typeof d.value !== 'number') throw new Error('bad response');
-      return d.value;
-    }
-
-    const services = [counterApiDev, countApiXyz];
-    let count = null;
-
-    for (const svc of services) {
+    try {
+      // Read current count from shared storage
+      let current = 0;
       try {
-        count = await svc(!alreadyCounted);
-        if (typeof count === 'number' && count >= 0) break;
-      } catch (e) {
-        console.warn('[ViewCounter]', e.message, '— trying next service');
+        const result = await window.storage.get(STORAGE_KEY, true); // shared=true
+        current = parseInt(result.value) || 0;
+      } catch (_) {
+        current = 0; // key doesn't exist yet
       }
-    }
 
-    if (typeof count === 'number' && count >= 0) {
-      if (!alreadyCounted) sessionStorage.setItem(SESSION, '1');
-      animateTo(count, Math.max(1, count - 20));
-    } else {
-      el.textContent = '—';
-    }
-  })();
-    }
-
-    // ── Try counterapi.dev ──────────────────────────────────────────────
-    async function tryCounterApi(hit) {
-      const action = hit ? 'up' : 'get';
-      const url = 'https://counterapi.dev/api/mlnotes/' + KEY + '/' + action;
-      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (!r.ok) throw new Error('counterapi ' + r.status);
-      const d = await r.json();
-      // counterapi returns { count: N }
-      return typeof d.count === 'number' ? d.count : parseInt(d.count);
-    }
-
-    // ── Try api.counterapi.dev (v2 endpoint) ───────────────────────────
-    async function tryCounterApiV2(hit) {
-      const url = hit
-        ? 'https://api.counterapi.dev/v1/mlnotes/' + KEY + '/up'
-        : 'https://api.counterapi.dev/v1/mlnotes/' + KEY;
-      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (!r.ok) throw new Error('counterapi-v2 ' + r.status);
-      const d = await r.json();
-      return typeof d.count === 'number' ? d.count : parseInt(d.count);
-    }
-
-    // ── Firebase public demo DB (last resort) ─────────────────────────
-    async function tryFirebase(hit) {
-      const base = 'https://mlnotes-views-default-rtdb.firebaseio.com/' + KEY;
-      if (hit) {
-        // Read then write atomically with a transaction-like approach
-        const r1 = await fetch(base + '.json', { signal: AbortSignal.timeout(4000) });
-        const val = (await r1.json()) || 0;
-        const newVal = val + 1;
-        await fetch(base + '.json', {
-          method: 'PUT',
-          body: JSON.stringify(newVal),
-          signal: AbortSignal.timeout(4000)
-        });
-        return newVal;
-      } else {
-        const r = await fetch(base + '.json', { signal: AbortSignal.timeout(4000) });
-        return (await r.json()) || 0;
+      // Only count once per browser session
+      if (!sessionStorage.getItem(SESSION_KEY)) {
+        current += 1;
+        sessionStorage.setItem(SESSION_KEY, '1');
+        await window.storage.set(STORAGE_KEY, String(current), true); // shared=true
       }
-    }
 
-    const shouldHit = !sessionStorage.getItem(SESSION);
-
-    // Try each service in order, stop at first success
-    const services = [tryCounterApi, tryCounterApiV2];
-    let count = null;
-
-    for (const svc of services) {
-      try {
-        count = await svc(shouldHit);
-        if (typeof count === 'number' && count >= 0) {
-          if (shouldHit) sessionStorage.setItem(SESSION, '1');
-          break;
-        }
-      } catch (_) { /* try next */ }
-    }
-
-    if (typeof count === 'number' && count >= 0) {
-      animateTo(count, Math.max(1, count - 20));
-    } else {
+      animateTo(current, Math.max(0, current - 30));
+    } catch (err) {
+      // Fallback if storage API unavailable
       el.textContent = '—';
+      console.warn('View counter storage unavailable:', err);
     }
   })();
 </script>
