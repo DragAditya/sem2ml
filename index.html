@@ -1347,45 +1347,44 @@
     document.getElementById('btt').classList.toggle('show', s > 300);
   }, { passive: true });
 
-  // Real shared view counter using persistent storage
-  (async function() {
+  // Real shared view counter — works on GitHub Pages via countapi.dev
+  (async function () {
     const el = document.getElementById('vcount');
-    const STORAGE_KEY = 'ml-exam-answers-views';
-    const SESSION_KEY = 'ml-exam-answers-counted';
+    const NAMESPACE = 'github-mlnotes';
+    const KEY       = 'ml-exam-answers-v1';
+    const SESSION   = 'mlqa-hit-sent';
 
     function animateTo(target, from) {
       const dur = 900, t0 = Date.now();
       (function tick() {
         const p = Math.min((Date.now() - t0) / dur, 1);
-        const e = 1 - Math.pow(1 - p, 3);
-        el.textContent = Math.floor(from + (target - from) * e).toLocaleString();
+        const ease = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.floor(from + (target - from) * ease).toLocaleString();
         if (p < 1) requestAnimationFrame(tick);
         else el.textContent = target.toLocaleString();
       })();
     }
 
     try {
-      // Read current count from shared storage
-      let current = 0;
-      try {
-        const result = await window.storage.get(STORAGE_KEY, true); // shared=true
-        current = parseInt(result.value) || 0;
-      } catch (_) {
-        current = 0; // key doesn't exist yet
+      let count;
+      if (!sessionStorage.getItem(SESSION)) {
+        // HIT: increments counter globally, returns new value
+        const res = await fetch('https://api.countapi.dev/hit/' + NAMESPACE + '/' + KEY);
+        if (!res.ok) throw new Error('hit failed');
+        const data = await res.json();
+        count = data.value;
+        sessionStorage.setItem(SESSION, '1');
+      } else {
+        // GET: just read current value without incrementing
+        const res = await fetch('https://api.countapi.dev/get/' + NAMESPACE + '/' + KEY);
+        if (!res.ok) throw new Error('get failed');
+        const data = await res.json();
+        count = data.value;
       }
-
-      // Only count once per browser session
-      if (!sessionStorage.getItem(SESSION_KEY)) {
-        current += 1;
-        sessionStorage.setItem(SESSION_KEY, '1');
-        await window.storage.set(STORAGE_KEY, String(current), true); // shared=true
-      }
-
-      animateTo(current, Math.max(0, current - 30));
+      animateTo(count, Math.max(1, count - 25));
     } catch (err) {
-      // Fallback if storage API unavailable
       el.textContent = '—';
-      console.warn('View counter storage unavailable:', err);
+      console.warn('View counter unavailable:', err);
     }
   })();
 </script>
